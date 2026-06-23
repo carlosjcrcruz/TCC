@@ -155,15 +155,6 @@ def plotar_comparacao_fpr(tabela: pd.DataFrame, caminho: Path | str) -> None:
         fontsize=14,
         fontweight="bold",
     )
-    fig.text(
-        0.08,
-        0.94,
-        "Valores percentuais sobre as barras; escala ajustada ao maior FPR observado.",
-        ha="left",
-        va="top",
-        fontsize=9,
-        color="#6F768A",
-    )
     eixo.yaxis.set_major_locator(MultipleLocator(passo_eixo))
     eixo.yaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
     eixo.tick_params(axis="x", rotation=30)
