@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+.matplotlib/
+.agents/
+.vscode/
+.idea/
+.env
+*.keras
+*.joblib
+dados_processados/
+resultados/
