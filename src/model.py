@@ -62,6 +62,14 @@ def treinar_modelo(modelo, x_treino, y_treino, x_validacao, y_validacao, config)
         patience=config.paciencia_early_stopping,
         restore_best_weights=True,
     )
+    pesos_classes = None
+    if config.usar_pesos_classes:
+        classes, contagens = np.unique(y_treino, return_counts=True)
+        total = len(y_treino)
+        pesos_classes = {
+            int(classe): float(total / (len(classes) * contagem))
+            for classe, contagem in zip(classes, contagens)
+        }
     return modelo.fit(
         x_treino,
         y_treino_cat,
@@ -69,6 +77,7 @@ def treinar_modelo(modelo, x_treino, y_treino, x_validacao, y_validacao, config)
         epochs=config.epocas,
         batch_size=config.batch_size,
         callbacks=[early_stopping],
+        class_weight=pesos_classes,
         shuffle=False,
         verbose=config.verbose_treinamento,
     )
@@ -77,4 +86,3 @@ def treinar_modelo(modelo, x_treino, y_treino, x_validacao, y_validacao, config)
 def limpar_sessao() -> None:
     """Libera o grafo anterior antes de criar o modelo do próximo cenário."""
     _tensorflow().keras.backend.clear_session()
-

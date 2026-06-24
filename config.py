@@ -39,6 +39,10 @@ class ConfigProjeto:
 
     # Cenários experimentais.
     intensidades_ruido: Tuple[float, ...] = (0.0005, 0.001, 0.002, 0.005)
+    # Intensidade usada para comparar a série ruidosa com EMA/Wavelet. Os
+    # filtros são aplicados SOBRE esta série, nunca diretamente sobre o close
+    # original, pois o ruído injetado é a verdade de referência da análise.
+    intensidade_ruido_filtros: float = 0.002
     ema_span_cenario: int = 20
     wavelet: str = "db4"
     wavelet_nivel: int = 3
@@ -46,9 +50,21 @@ class ConfigProjeto:
     wavelet_threshold_scale: float = 1.0
     wavelet_threshold_mode: str = "soft"
 
-    # Rótulos e sequências.
+    # Busca de hiperparâmetros dos filtros. A escolha minimiza o RMSE entre a
+    # série filtrada e a original somente no trecho de treino.
+    executar_busca_filtros: bool = True
+    ema_spans_busca: Tuple[int, ...] = (2, 3, 5, 8, 13, 20)
+    wavelets_busca: Tuple[str, ...] = ("db2", "db4", "sym4")
+    wavelet_niveis_busca: Tuple[int, ...] = (1, 2, 3)
+    wavelet_janelas_busca: Tuple[int, ...] = (64, 128, 256)
+    wavelet_threshold_scales_busca: Tuple[float, ...] = (0.5, 1.0)
+    wavelet_threshold_modes_busca: Tuple[str, ...] = ("soft",)
+
+    # Rótulos e sequências. O limiar de 0,8% foi definido no treino acima do
+    # limite de 95% do ruído relativo medido (1,96 * sqrt(2) * sigma) e acima
+    # do desvio-padrão dos retornos no horizonte de 10 candles.
     horizonte_futuro: int = 10
-    limiar_retorno: float = 0.002
+    limiar_retorno: float = 0.008
     tamanho_janela: int = 60
     proporcao_treino: float = 0.70
     proporcao_validacao: float = 0.15
@@ -63,6 +79,7 @@ class ConfigProjeto:
     epocas: int = 50
     batch_size: int = 64
     paciencia_early_stopping: int = 8
+    usar_pesos_classes: bool = True
     seed: int = 42
     verbose_treinamento: int = 1
 
@@ -106,6 +123,22 @@ class ConfigProjeto:
             raise ValueError("wavelet_threshold_mode deve ser 'soft' ou 'hard'.")
         if self.wavelet_janela_causal <= 1:
             raise ValueError("wavelet_janela_causal deve ser maior que 1.")
+        if self.intensidade_ruido_filtros not in self.intensidades_ruido:
+            raise ValueError(
+                "intensidade_ruido_filtros deve pertencer a intensidades_ruido."
+            )
+        if not self.ema_spans_busca or min(self.ema_spans_busca) <= 0:
+            raise ValueError("ema_spans_busca deve conter apenas valores positivos.")
+        if not self.wavelets_busca or not self.wavelet_niveis_busca:
+            raise ValueError("A grade de busca Wavelet não pode ser vazia.")
+        if min(self.wavelet_niveis_busca) <= 0:
+            raise ValueError("Os níveis Wavelet devem ser positivos.")
+        if min(self.wavelet_janelas_busca) <= 1:
+            raise ValueError("As janelas Wavelet devem ser maiores que 1.")
+        if min(self.wavelet_threshold_scales_busca) < 0:
+            raise ValueError("As escalas de limiar Wavelet não podem ser negativas.")
+        if not set(self.wavelet_threshold_modes_busca) <= {"soft", "hard"}:
+            raise ValueError("Modos de limiar da busca devem ser 'soft' ou 'hard'.")
         soma = self.proporcao_treino + self.proporcao_validacao + self.proporcao_teste
         if abs(soma - 1.0) > 1e-9 or min(
             self.proporcao_treino,

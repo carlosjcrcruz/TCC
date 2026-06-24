@@ -73,7 +73,11 @@ def wavelet_denoising(
     return pd.Series(saida, index=close.index)
 
 
-def criar_cenarios(dados: pd.DataFrame, config):
+def criar_cenarios(
+    dados: pd.DataFrame,
+    config,
+    series_filtradas: dict[str, pd.Series] | None = None,
+):
     """Devolve os sete cenários em uma ordem estável para comparação."""
     cenarios = OrderedDict()
 
@@ -90,18 +94,29 @@ def criar_cenarios(dados: pd.DataFrame, config):
         nome = f"Ruído {intensidade:g}"
         cenarios[nome] = cenario
 
+    nome_ruido_filtro = f"Ruído {config.intensidade_ruido_filtros:g}"
+    entrada_filtros = cenarios[nome_ruido_filtro]["close_modelo"]
+
     ema = dados.copy()
-    ema["close_modelo"] = suavizar_ema(dados["close"], config.ema_span_cenario)
+    ema["close_modelo"] = (
+        series_filtradas["EMA"]
+        if series_filtradas is not None
+        else suavizar_ema(entrada_filtros, config.ema_span_cenario)
+    )
     cenarios["EMA"] = ema
 
     wavelet = dados.copy()
-    wavelet["close_modelo"] = wavelet_denoising(
-        dados["close"],
-        wavelet=config.wavelet,
-        nivel=config.wavelet_nivel,
-        janela_causal=config.wavelet_janela_causal,
-        threshold_scale=config.wavelet_threshold_scale,
-        threshold_mode=config.wavelet_threshold_mode,
+    wavelet["close_modelo"] = (
+        series_filtradas["Wavelet"]
+        if series_filtradas is not None
+        else wavelet_denoising(
+            entrada_filtros,
+            wavelet=config.wavelet,
+            nivel=config.wavelet_nivel,
+            janela_causal=config.wavelet_janela_causal,
+            threshold_scale=config.wavelet_threshold_scale,
+            threshold_mode=config.wavelet_threshold_mode,
+        )
     )
     cenarios["Wavelet"] = wavelet
     return cenarios

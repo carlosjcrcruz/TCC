@@ -19,6 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib.ticker import MultipleLocator, PercentFormatter
 
 
@@ -56,26 +57,235 @@ def plotar_original_vs_ruidos(
 
 def plotar_comparacao_serie(
     dados_originais: pd.DataFrame,
+    dados_ruidosos: pd.DataFrame,
     dados_tratados: pd.DataFrame,
     nome_tratamento: str,
     caminho: Path | str,
+    intensidade_ruido: float,
+    max_pontos: int = 600,
 ) -> None:
+    """Compara entrada ruidosa, saída filtrada e ruído efetivamente removido."""
     caminho = _preparar_destino(caminho)
-    fig, eixo = plt.subplots(figsize=(14, 6))
-    eixo.plot(dados_originais["time"], dados_originais["close"], label="Original", lw=1)
-    eixo.plot(
-        dados_tratados["time"],
-        dados_tratados["close_modelo"],
-        label=nome_tratamento,
-        lw=1,
-        alpha=0.85,
+    inicio = max(0, len(dados_originais) - max_pontos)
+    tempo = pd.to_datetime(dados_originais["time"].iloc[inicio:], utc=True)
+    indice_candle = np.arange(len(tempo))
+    original = dados_originais["close"].iloc[inicio:].to_numpy(dtype=float)
+    ruidosa = dados_ruidosos["close_modelo"].iloc[inicio:].to_numpy(dtype=float)
+    filtrada = dados_tratados["close_modelo"].iloc[inicio:].to_numpy(dtype=float)
+    ruido_injetado = ruidosa - original
+    ruido_removido = ruidosa - filtrada
+    correlacao = float(np.corrcoef(ruido_injetado, ruido_removido)[0, 1])
+
+    sns.set_theme(
+        style="whitegrid",
+        rc={
+            "figure.facecolor": "#FCFCFD",
+            "axes.facecolor": "#FFFFFF",
+            "axes.edgecolor": "#D7DBE7",
+            "grid.color": "#E6E8F0",
+            "font.family": "sans-serif",
+        },
     )
-    eixo.set(title=f"Série original versus {nome_tratamento}", xlabel="Tempo", ylabel="Preço")
-    eixo.grid(alpha=0.25)
-    eixo.legend()
-    fig.autofmt_xdate()
-    fig.tight_layout()
+    fig, eixos = plt.subplots(
+        2,
+        1,
+        figsize=(15, 8.5),
+        sharex=True,
+        gridspec_kw={"height_ratios": [2.1, 1]},
+    )
+    sns.lineplot(
+        x=indice_candle,
+        y=original,
+        ax=eixos[0],
+        color="#464C55",
+        linewidth=1.0,
+        label="Série original (referência)",
+    )
+    sns.lineplot(
+        x=indice_candle,
+        y=ruidosa,
+        ax=eixos[0],
+        color="#F0986E",
+        linewidth=0.9,
+        linestyle="--",
+        label=f"Série com ruído (σ={intensidade_ruido:g})",
+    )
+    sns.lineplot(
+        x=indice_candle,
+        y=filtrada,
+        ax=eixos[0],
+        color="#5477C4",
+        linewidth=1.0,
+        label=f"Série após {nome_tratamento}",
+    )
+    eixos[0].set(ylabel="Preço", xlabel="")
+    eixos[0].legend(
+        loc="lower left",
+        bbox_to_anchor=(0, 1.01),
+        frameon=False,
+        ncol=3,
+        borderaxespad=0,
+    )
+
+    sns.lineplot(
+        x=indice_candle,
+        y=ruido_injetado,
+        ax=eixos[1],
+        color="#F0986E",
+        linewidth=0.9,
+        linestyle="--",
+        label="Ruído injetado: ruidosa − original",
+    )
+    sns.lineplot(
+        x=indice_candle,
+        y=ruido_removido,
+        ax=eixos[1],
+        color="#5477C4",
+        linewidth=0.9,
+        label=f"Ruído removido: ruidosa − {nome_tratamento}",
+    )
+    eixos[1].axhline(0, color="#464C55", linewidth=0.8, linestyle=":")
+    eixos[1].set(xlabel="Índice sequencial do candle", ylabel="Resíduo em preço")
+    eixos[1].legend(frameon=False, loc="upper left", ncol=2)
+    eixos[1].text(
+        0.99,
+        0.94,
+        f"Correlação entre ruído injetado e removido: {correlacao:.3f}",
+        transform=eixos[1].transAxes,
+        ha="right",
+        va="top",
+        fontsize=9,
+        color="#1F2430",
+        bbox={"facecolor": "white", "edgecolor": "#D7DBE7", "alpha": 0.90},
+    )
+
+    for eixo in eixos:
+        eixo.spines[["top", "right"]].set_visible(False)
+        eixo.grid(axis="y", alpha=0.8)
+        eixo.grid(axis="x", visible=False)
+
+    fig.suptitle(
+        f"{nome_tratamento} aplicado à série com ruído gaussiano",
+        x=0.08,
+        y=0.995,
+        ha="left",
+        fontsize=14,
+        fontweight="bold",
+        color="#1F2430",
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
     fig.savefig(caminho, dpi=160, bbox_inches="tight")
+    fig.savefig(caminho.with_suffix(".svg"), bbox_inches="tight")
+    plt.close(fig)
+
+
+def plotar_histograma_ruido(
+    serie_original: pd.Series,
+    serie_ruidosa: pd.Series,
+    intensidade: float,
+    caminho: Path | str,
+) -> None:
+    """Mostra a distribuição de ``ruidosa - original`` e sua forma relativa.
+
+    O segundo painel é o teste visual apropriado para o modelo multiplicativo
+    ``ruidosa = original * (1 + epsilon)``, no qual epsilon segue N(0, sigma²).
+    """
+    caminho = _preparar_destino(caminho)
+    original = serie_original.to_numpy(dtype=float)
+    ruidosa = serie_ruidosa.to_numpy(dtype=float)
+    ruido_absoluto = ruidosa - original
+    ruido_relativo = ruidosa / original - 1.0
+    media = float(np.mean(ruido_relativo))
+    desvio = float(np.std(ruido_relativo, ddof=1))
+
+    sns.set_theme(
+        style="whitegrid",
+        rc={
+            "figure.facecolor": "#FCFCFD",
+            "axes.facecolor": "#FFFFFF",
+            "axes.edgecolor": "#D7DBE7",
+            "grid.color": "#E6E8F0",
+            "font.family": "sans-serif",
+        },
+    )
+    fig, eixos = plt.subplots(1, 2, figsize=(14, 5.8))
+    cor_base, cor_contorno, cor_teorica = "#A3BEFA", "#2E4780", "#804126"
+
+    sns.histplot(
+        ruido_absoluto,
+        bins="fd",
+        stat="density",
+        color=cor_base,
+        edgecolor=cor_contorno,
+        linewidth=0.7,
+        ax=eixos[0],
+    )
+    eixos[0].axvline(0, color="#1F2430", linestyle=":", linewidth=1)
+    eixos[0].set(
+        title="Ruído absoluto",
+        xlabel="série ruidosa − série original (unidade de preço)",
+        ylabel="Densidade",
+    )
+
+    sns.histplot(
+        ruido_relativo,
+        bins="fd",
+        stat="density",
+        color=cor_base,
+        edgecolor=cor_contorno,
+        linewidth=0.7,
+        label="Ruído observado",
+        ax=eixos[1],
+    )
+    limite = max(abs(float(np.min(ruido_relativo))), abs(float(np.max(ruido_relativo))))
+    x = np.linspace(-limite, limite, 500)
+    densidade_normal = np.exp(-0.5 * (x / intensidade) ** 2) / (
+        intensidade * np.sqrt(2.0 * np.pi)
+    )
+    eixos[1].plot(
+        x,
+        densidade_normal,
+        color=cor_teorica,
+        linewidth=1.2,
+        label=f"Normal teórica: N(0, {intensidade:g}²)",
+    )
+    eixos[1].axvline(media, color="#1F2430", linestyle=":", linewidth=1)
+    eixos[1].set(
+        title="Ruído relativo e distribuição teórica",
+        xlabel="série ruidosa / série original − 1",
+        ylabel="Densidade",
+    )
+    eixos[1].legend(frameon=False, loc="upper left")
+    eixos[1].text(
+        0.98,
+        0.96,
+        f"n = {len(ruido_relativo):,}\nμ observado = {media:.2e}\n"
+        f"σ observado = {desvio:.6f}\nσ configurado = {intensidade:.6f}",
+        transform=eixos[1].transAxes,
+        ha="right",
+        va="top",
+        fontsize=9,
+        color="#1F2430",
+        bbox={"facecolor": "white", "edgecolor": "#D7DBE7", "alpha": 0.92},
+    )
+
+    for eixo in eixos:
+        eixo.spines[["top", "right"]].set_visible(False)
+        eixo.grid(axis="y", alpha=0.8)
+        eixo.grid(axis="x", visible=False)
+
+    fig.suptitle(
+        "Distribuição do ruído gaussiano injetado",
+        x=0.07,
+        y=0.99,
+        ha="left",
+        fontsize=14,
+        fontweight="semibold",
+        color="#1F2430",
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    fig.savefig(caminho, dpi=180, bbox_inches="tight")
+    fig.savefig(caminho.with_suffix(".svg"), bbox_inches="tight")
     plt.close(fig)
 
 

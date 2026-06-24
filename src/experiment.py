@@ -13,6 +13,11 @@ import pandas as pd
 
 from src.data_collection import obter_dados, salvar_dados_originais
 from src.evaluation import avaliar_classificacao
+from src.filter_analysis import (
+    calcular_estatisticas_ruido,
+    diagnosticar_filtros_selecionados,
+    selecionar_filtros,
+)
 from src.labeling import anexar_rotulos
 from src.model import (
     configurar_reprodutibilidade,
@@ -25,6 +30,7 @@ from src.plots import (
     plotar_comparacao_f1,
     plotar_comparacao_fpr,
     plotar_comparacao_serie,
+    plotar_histograma_ruido,
     plotar_matriz_confusao,
     plotar_original_vs_ruidos,
 )
@@ -34,6 +40,7 @@ from src.sequences import (
     criar_sequencias,
     separar_sequencias_temporais,
 )
+from src.threshold_analysis import analisar_limiar_retorno
 
 
 COLUNAS_COMPARACAO = [
@@ -78,6 +85,7 @@ def _preparar_pastas(config) -> dict[str, Path]:
         "metricas": config.pasta_resultados / "metricas",
         "predicoes": config.pasta_resultados / "predicoes",
         "historicos": config.pasta_resultados / "historicos_treinamento",
+        "diagnosticos": config.pasta_resultados / "diagnostico_filtros",
     }
     for pasta in pastas.values():
         pasta.mkdir(parents=True, exist_ok=True)
@@ -115,22 +123,95 @@ def executar_experimentos(config) -> pd.DataFrame:
     caminho_original = salvar_dados_originais(dados_originais, pastas["dados"])
     logging.info("Dados originais salvos em %s", caminho_original)
 
+    logging.info("Selecionando EMA/Wavelet sobre a série com ruído conhecido...")
+    selecao_filtros = selecionar_filtros(dados_originais["close"], config)
+    selecao_filtros.tabela_busca.to_csv(
+        pastas["diagnosticos"] / "busca_hiperparametros_filtros.csv", index=False
+    )
+    diagnosticar_filtros_selecionados(
+        dados_originais["close"], selecao_filtros, config
+    ).to_csv(
+        pastas["diagnosticos"] / "metricas_filtros_selecionados.csv", index=False
+    )
+    with (pastas["diagnosticos"] / "melhores_parametros_filtros.json").open(
+        "w", encoding="utf-8"
+    ) as arquivo:
+        json.dump(
+            _serializavel(selecao_filtros.melhores_parametros),
+            arquivo,
+            indent=2,
+            ensure_ascii=False,
+        )
+
     logging.info("Criando cenários experimentais...")
-    cenarios = criar_cenarios(dados_originais, config)
+    cenarios = criar_cenarios(
+        dados_originais, config, series_filtradas=selecao_filtros.series_filtradas
+    )
+    nome_ruido_filtro = f"Ruído {config.intensidade_ruido_filtros:g}"
+    serie_original = dados_originais["close"]
+    serie_ruidosa = cenarios[nome_ruido_filtro]["close_modelo"]
+    residuos_ruido = pd.DataFrame(
+        {
+            "time": dados_originais["time"],
+            "serie_original": serie_original,
+            "serie_ruidosa": serie_ruidosa,
+            "ruido_absoluto": serie_ruidosa - serie_original,
+            "ruido_relativo": serie_ruidosa / serie_original - 1.0,
+        }
+    )
+    slug_intensidade = str(config.intensidade_ruido_filtros).replace(".", "_")
+    residuos_ruido.to_csv(
+        pastas["diagnosticos"] / f"residuos_ruido_{slug_intensidade}.csv",
+        index=False,
+    )
+    pd.DataFrame(
+        [
+            calcular_estatisticas_ruido(
+                serie_original, serie_ruidosa, config.intensidade_ruido_filtros
+            )
+        ]
+    ).to_csv(
+        pastas["diagnosticos"] / f"estatisticas_ruido_{slug_intensidade}.csv",
+        index=False,
+    )
+    tabela_theta, resumo_theta = analisar_limiar_retorno(
+        serie_original,
+        serie_ruidosa,
+        config.horizonte_futuro,
+        config.proporcao_treino,
+        config.limiar_retorno,
+    )
+    tabela_theta.to_csv(
+        pastas["diagnosticos"] / "comparacao_limiares_theta.csv", index=False
+    )
+    with (pastas["diagnosticos"] / "resumo_limiar_theta.json").open(
+        "w", encoding="utf-8"
+    ) as arquivo:
+        json.dump(_serializavel(resumo_theta), arquivo, indent=2, ensure_ascii=False)
+    plotar_histograma_ruido(
+        serie_original,
+        serie_ruidosa,
+        config.intensidade_ruido_filtros,
+        pastas["diagnosticos"] / f"histograma_ruido_{slug_intensidade}.png",
+    )
     plotar_original_vs_ruidos(
         dados_originais, cenarios, pastas["graficos"] / "original_vs_ruidos.png"
     )
     plotar_comparacao_serie(
         dados_originais,
+        cenarios[nome_ruido_filtro],
         cenarios["EMA"],
         "EMA",
         pastas["graficos"] / "original_vs_ema.png",
+        config.intensidade_ruido_filtros,
     )
     plotar_comparacao_serie(
         dados_originais,
+        cenarios[nome_ruido_filtro],
         cenarios["Wavelet"],
         "Wavelet",
         pastas["graficos"] / "original_vs_wavelet.png",
+        config.intensidade_ruido_filtros,
     )
 
     resultados = []
@@ -247,4 +328,3 @@ def executar_experimentos(config) -> pd.DataFrame:
     plotar_comparacao_f1(tabela, pastas["graficos"] / "comparacao_f1.png")
     logging.info("Experimentos concluídos. Resultados em %s", pastas["resultados"])
     return tabela
-

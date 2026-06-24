@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from src.evaluation import avaliar_classificacao
+from src.filter_analysis import calcular_estatisticas_ruido
 from src.labeling import criar_rotulos
 from src.noise import adicionar_ruido_gaussiano
 from src.preprocessing import normalizar_sem_vazamento
@@ -14,6 +15,7 @@ from src.sequences import (
     criar_sequencias,
     separar_sequencias_temporais,
 )
+from src.threshold_analysis import analisar_limiar_retorno
 
 
 class TestMetodologia(unittest.TestCase):
@@ -56,6 +58,27 @@ class TestMetodologia(unittest.TestCase):
         primeiro = adicionar_ruido_gaussiano(close, 0.001, seed=7)
         segundo = adicionar_ruido_gaussiano(close, 0.001, seed=7)
         np.testing.assert_allclose(primeiro, segundo)
+
+    def test_estatisticas_recuperam_ruido_relativo_injetado(self):
+        original = pd.Series(np.linspace(20.0, 30.0, 20_000))
+        intensidade = 0.002
+        ruidosa = adicionar_ruido_gaussiano(original, intensidade, seed=7)
+        estatisticas = calcular_estatisticas_ruido(original, ruidosa, intensidade)
+        self.assertAlmostEqual(
+            estatisticas["desvio_padrao_relativo"], intensidade, delta=0.00005
+        )
+        self.assertAlmostEqual(estatisticas["media_relativa"], 0.0, delta=0.00005)
+
+    def test_theta_recomendado_supera_limite_de_ruido(self):
+        indice = np.arange(20_000)
+        original = pd.Series(30.0 + 0.01 * np.sin(indice / 10.0))
+        ruidosa = adicionar_ruido_gaussiano(original, 0.002, seed=7)
+        tabela, resumo = analisar_limiar_retorno(
+            original, ruidosa, horizonte=10, proporcao_treino=0.70
+        )
+        linha_theta = tabela.loc[tabela["theta"] == 0.008].iloc[0]
+        self.assertGreater(0.008, resumo["limite_ruido_95"])
+        self.assertTrue(bool(linha_theta["supera_limite_ruido_95"]))
 
     def test_fpr_e_fdr_por_classe(self):
         real = np.array([0, 0, 1, 1, 2, 2])

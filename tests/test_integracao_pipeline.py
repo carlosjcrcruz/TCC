@@ -50,6 +50,7 @@ class TestIntegracaoPipeline(unittest.TestCase):
                 wavelet="db2",
                 wavelet_nivel=2,
                 wavelet_janela_causal=32,
+                executar_busca_filtros=False,
                 horizonte_futuro=3,
                 limiar_retorno=0.0015,
                 tamanho_janela=12,
@@ -90,4 +91,3 @@ class TestIntegracaoPipeline(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
