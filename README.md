@@ -1,4 +1,102 @@
-# Ruído e falsos sinais em séries financeiras
+# Previsão e falsos sinais em séries financeiras
+
+## Fluxo principal: prever operações com lucro líquido
+
+Para seguir o procedimento experimental do TCC com a previsão nova, use:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\treinar_ruido_tcc.py
+```
+
+Esse protocolo treina do zero sete redes por semente (original, quatro ruídos,
+EMA e Wavelet sobre ruído 0,002), com normalizadores por cenário. O ruído
+atinge somente `close_modelo`, como no TCC; OHL e volume são preservados.
+A divisão cronológica é 70%/15%/15%, com expurgo dos alvos nas fronteiras.
+A MLP e o alvo de lucro da previsão nova são mantidos. O resultado está em
+[RESULTADOS_TCC_NOVA_PREDICAO.md](RESULTADOS_TCC_NOVA_PREDICAO.md).
+
+Os experimentos de ruído da estrutura nova usam a MLP de compra/venda com
+alvo/stop já salva: quatro intensidades, dez sementes, EMA e Wavelet causais,
+controles sem ruído e dois escopos (rede; rede e evento de entrada). Modelo,
+scaler, limiares, preços de execução e alvos financeiros permanecem fixos.
+Veja [RESULTADOS_RUIDO_NOVA_PREVISAO.md](RESULTADOS_RUIDO_NOVA_PREVISAO.md).
+
+```powershell
+.\.venv\Scripts\python.exe scripts\experimentar_ruido_previsao.py
+```
+
+Esse comando é um ensaio exploratório de sensibilidade do modelo congelado.
+O antigo `main.py --modo ruido` continua separado e usa o pipeline legado.
+
+Foi testado um filtro em duas etapas, com contexto M15/H1 e atualização
+trimestral. O experimento e seus resultados estão em
+[RESULTADOS_METAFILTRO.md](RESULTADOS_METAFILTRO.md). Ele não atingiu 70% nas
+duas direções e permanece separado dos modelos anteriores.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\testar_metafiltro.py
+```
+
+As regras de entrada e saída também foram ampliadas: alvo, stop e prazo
+máximo, com limites fixos ou calculados pelo ATR passado. Veja
+[RESULTADOS_ESTRATEGIAS.md](RESULTADOS_ESTRATEGIAS.md) para as novas buscas
+e a confirmação posterior. Houve mais de 70% nas duas direções na seleção,
+mas a configuração escolhida **não sustentou a meta na confirmação**.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\buscar_estrategias.py --somente-validacao
+```
+
+Foram acrescentados rótulos binários por direção, bandas de volatilidade e
+especialistas independentes. As buscas e seus resultados reais estão em
+[RESULTADOS_META70.md](RESULTADOS_META70.md). **A meta de 70% nas duas direções
+ainda não foi atingida.** Para reproduzir a busca nova:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\buscar_meta70.py
+.\.venv\Scripts\python.exe scripts\buscar_especialistas.py
+```
+
+O objetivo foi esclarecido: 70% das compras e 70% das vendas efetivamente
+executadas devem terminar com lucro após taxas. O modo padrão agora é `lucro`.
+Ele separa treino, Early Stopping, ajuste da emissão, seleção e avaliação
+posterior. Não usa spread ou slippage.
+
+```powershell
+.\.venv\Scripts\python.exe main.py
+.\.venv\Scripts\python.exe scripts\comparar_rotulos.py
+```
+
+Veja [ROTULAGENS_E_LUCRO.md](ROTULAGENS_E_LUCRO.md) para os sete rótulos
+comparados e a definição da métrica. O retorno mínimo de 0,8% é um objetivo
+anterior e continua reproduzível com `--modo previsao`.
+
+## Fluxo anterior: previsão do evento de 0,8% sem ruído
+
+O modo `previsao` desenvolve e avalia a previsão antes de qualquer ensaio
+de ruído. Usa o CSV histórico local, três blocos temporais de desenvolvimento e
+um teste posterior. Compara referências simples, regressão logística, boosting,
+Ridge, LSTM de classificação e LSTM de previsão numérica do retorno.
+
+```powershell
+.\.venv\Scripts\python.exe main.py --modo previsao
+```
+
+Os resultados novos ficam em `previsao_sem_ruido/execucao_.../`, sem substituir
+os resultados anteriores. Veja [PREVISAO_SEM_RUIDO.md](PREVISAO_SEM_RUIDO.md) para
+comandos, definição dos alvos, critérios de 70% e simulação operacional.
+
+A avaliação executada está documentada em
+[RESULTADOS_ANTES_DEPOIS.md](RESULTADOS_ANTES_DEPOIS.md) e
+[RESULTADOS_HISTORICO_AMPLIADO.md](RESULTADOS_HISTORICO_AMPLIADO.md).
+Há coletas adicionais de 50 mil e 99.998 candles. Use `--csv` para escolher
+explicitamente o snapshot; as buscas novas usam por padrão o de 99.998 candles.
+
+## Experimento anterior de ruído
+
+O pipeline abaixo foi preservado e agora exige `--modo ruido`. Seus resultados
+anteriores não certificam a capacidade preditiva do novo pipeline. Nos comandos
+das seções seguintes, use `python main.py --modo ruido ...` para executá-lo.
 
 Projeto experimental em Python para investigar como ruído, suavização por EMA e
 Wavelet Denoising afetam falsos positivos em sinais de compra e venda. O código
@@ -72,7 +170,7 @@ O nome do ativo depende da corretora e pode ter um sufixo. Confirme no
 Com o terminal aberto e conectado:
 
 ```powershell
-python main.py --simbolo PETR4 --timeframe M5 --candles 10000
+python main.py --modo ruido --simbolo PETR4 --timeframe M5 --candles 10000
 ```
 
 Os mesmos valores podem ser alterados diretamente na classe `ConfigProjeto`, em
@@ -112,19 +210,19 @@ time,open,high,low,close,tick_volume
 completamente o MetaTrader 5:
 
 ```powershell
-python main.py --sem-mt5 --csv .\meus_dados\PETR4_M5.csv
+python main.py --modo ruido --sem-mt5 --csv .\meus_dados\PETR4_M5.csv
 ```
 
 Para tentar o MT5 e usar o CSV apenas se a conexão falhar:
 
 ```powershell
-python main.py --csv .\meus_dados\PETR4_M5.csv
+python main.py --modo ruido --csv .\meus_dados\PETR4_M5.csv
 ```
 
 Para trocar a rede e a pasta de saída:
 
 ```powershell
-python main.py --sem-mt5 --csv .\PETR4_M5.csv --modelo GRU --saida .\execucao_gru
+python main.py --modo ruido --sem-mt5 --csv .\PETR4_M5.csv --modelo GRU --saida .\execucao_gru
 ```
 
 ## Arquivos gerados
